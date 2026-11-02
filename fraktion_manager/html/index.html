@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Fraktion Manager</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100vw; height: 100vh; overflow: hidden; background: transparent; }
+  #window, #bar, #dashboard, #loginScreen { visibility: hidden; }
+  #window {
+    position: fixed;
+    top: 10vh; left: 10vw;
+    width: 80vw;
+    height: 80vh;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: 0 8px 40px rgba(0,0,0,0.9);
+    border: 1px solid rgba(255,255,255,0.12);
+    display: flex;
+    flex-direction: column;
+  }
+  #bar {
+    position: relative;
+    flex-shrink: 0;
+    height: 36px;
+    background: #1a1a1f;
+    border-bottom: 1px solid rgba(255,255,255,0.07);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 14px;
+  }
+  #bar span {
+    color: rgba(255,255,255,0.6);
+    font-size: 12px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+  #closeBtn {
+    background: rgba(239,68,68,0.15);
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 12px;
+    font-family: inherit;
+  }
+  #closeBtn:hover { background: rgba(239,68,68,0.3); }
+  #dashboard-wrap {
+    flex: 1;
+    overflow: hidden;
+    position: relative;
+    min-height: 0;
+  }
+  #dashboard {
+    border: none;
+    background: #0f0f13;
+    display: block;
+    width: 100%;
+    height: 100%;
+  }
+  #loginScreen {
+    flex: 1;
+    background: #0f0f13;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    color: white;
+  }
+  #loginScreen h2 { font-size: 20px; font-weight: 600; }
+  #loginScreen p { color: rgba(255,255,255,0.5); font-size: 13px; text-align: center; max-width: 400px; }
+  #loginUrl {
+    background: #1a1a1f;
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 12px;
+    color: #ef4444;
+    width: 500px;
+    max-width: 90vw;
+    text-align: center;
+    cursor: text;
+    font-family: monospace;
+    outline: none;
+  }
+  #loginUrl:focus { border-color: #ef4444; }
+  #copyBtn { display: none; }
+  #loadingText { color: rgba(255,255,255,0.4); font-size: 13px; }
+  #resetBtn {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.1);
+    color: rgba(255,255,255,0.3);
+    cursor: pointer;
+    padding: 4px 10px;
+    border-radius: 5px;
+    font-size: 11px;
+    font-family: inherit;
+    margin-top: 8px;
+  }
+  #resetBtn:hover { color: rgba(255,255,255,0.6); }
+</style>
+</head>
+<body>
+<div id="window">
+<div id="bar">
+  <span>Fraktion Manager Dashboard</span>
+  <button id="closeBtn">✕ Schließen (ESC)</button>
+</div>
+<div id="dashboard-wrap"><iframe id="dashboard" src="about:blank"></iframe></div>
+<div id="loginScreen">
+  <h2>Einmalig einloggen</h2>
+  <p>Klicke auf den Link, markiere alles (Strg+A) und kopiere ihn (Strg+C). Öffne ihn dann in deinem Browser.</p>
+  <input id="loginUrl" type="text" readonly value="Wird geladen..." onclick="this.select()" />
+  <button id="copyBtn" style="display:none"></button>
+  <span id="loadingText"></span>
+  <button id="resetBtn">Neu einloggen</button>
+</div>
+</div>
+
+<script>
+  var win       = document.getElementById('window');
+  var frame     = document.getElementById('dashboard');
+  var loginScr  = document.getElementById('loginScreen');
+  var loginUrl  = document.getElementById('loginUrl');
+  var loadingTx = document.getElementById('loadingText');
+  var SESSION_KEY = 'fm_ingame_session';
+
+  var API_URL = 'https://fraktionmanager.com';
+
+  function store(key, value) {
+    try { localStorage.setItem(key, value); } catch (e) {}
+  }
+  function read(key) {
+    try { return localStorage.getItem(key); } catch (e) { return null; }
+  }
+  function drop(key) {
+    try { localStorage.removeItem(key); } catch (e) {}
+  }
+
+  function nui(name, body) {
+    return fetch('https://fraktion_manager/' + name, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body || {})
+    }).catch(function () {});
+  }
+
+  function showLogin() {
+    win.style.visibility = 'visible';
+    loginScr.style.visibility = 'visible';
+    frame.style.visibility = 'hidden';
+  }
+
+  function resizeFrame() {
+    var barH = 36;
+    var h = window.innerHeight * 0.8 - barH;
+    var w = window.innerWidth * 0.8;
+    frame.style.height = h + 'px';
+    frame.style.width = w + 'px';
+    frame.style.minHeight = h + 'px';
+    var wrap = document.getElementById('dashboard-wrap');
+    wrap.style.height = h + 'px';
+    wrap.style.minHeight = h + 'px';
+  }
+
+  function showDashboard(sessionToken, guildId) {
+    win.style.visibility = 'visible';
+    loginScr.style.visibility = 'hidden';
+    frame.style.visibility = 'visible';
+    resizeFrame();
+    var base = guildId
+      ? API_URL + '/dashboard/server/' + encodeURIComponent(guildId) + '/start'
+      : API_URL + '/dashboard';
+    frame.src = base + '?_ingame=1&_t=' + encodeURIComponent(sessionToken);
+  }
+
+  function closeDashboard() {
+    win.style.visibility = 'hidden';
+    loginScr.style.visibility = 'hidden';
+    frame.style.visibility = 'hidden';
+    frame.src = 'about:blank';
+    nui('closeDashboard');
+  }
+
+  function resetToken() {
+    drop(SESSION_KEY);
+    drop(SESSION_KEY + '_guild');
+    loadingTx.innerText = 'Lade neuen Link...';
+    fetchIngameToken();
+  }
+
+  function fetchIngameToken() {
+    loginUrl.value = 'Link wird geladen...';
+    loadingTx.innerText = '';
+    nui('requestIngameToken');
+  }
+
+  var pollTimer = null;
+  function pollForSession(ingameToken) {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(function () {
+      fetch(API_URL + '/api/auth/ingame-poll/' + ingameToken)
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+          if (data && data.sessionToken) {
+            clearInterval(pollTimer);
+            pollTimer = null;
+            store(SESSION_KEY, data.sessionToken);
+            if (data.guildId) store(SESSION_KEY + '_guild', data.guildId);
+            showDashboard(data.sessionToken, data.guildId || null);
+          }
+        })
+        .catch(function () {});
+    }, 3000);
+
+    setTimeout(function () {
+      if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+    }, 10 * 60 * 1000);
+  }
+
+  function openDashboard() {
+    var saved = read(SESSION_KEY);
+    if (saved) {
+      showDashboard(saved, read(SESSION_KEY + '_guild'));
+    } else {
+      showLogin();
+      fetchIngameToken();
+    }
+  }
+
+  document.getElementById('closeBtn').addEventListener('click', closeDashboard);
+  document.getElementById('resetBtn').addEventListener('click', resetToken);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape') closeDashboard();
+  });
+  window.addEventListener('resize', function () {
+    if (frame.style.visibility === 'visible') resizeFrame();
+  });
+
+  window.addEventListener('message', function (e) {
+    var data = e.data;
+    if (!data || !data.action) return;
+
+    if (data.action === 'open') {
+      openDashboard();
+      return;
+    }
+
+    if (data.action === 'close') {
+      closeDashboard();
+      return;
+    }
+
+    if (data.action === 'ingameToken') {
+      loginUrl.value = data.url;
+      loadingTx.innerText = 'Link kopieren, im Browser öffnen, fertig.';
+      pollForSession(data.token);
+      return;
+    }
+
+    if (data.action === 'ingameTokenError') {
+      loginUrl.value = 'Fehler beim Laden, bitte neu versuchen';
+      loadingTx.innerText = '';
+    }
+  });
+</script>
+</body>
+</html>
